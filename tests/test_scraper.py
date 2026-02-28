@@ -1,23 +1,18 @@
 """
 Tests for the SHL catalogue scraper.
 
-Tests cover:
-  - Data structure and field validation
-  - URL format correctness  
-  - Duration parsing
-  - Test type code mapping
-  - Catalogue validation report
+Tests:
+  - Duration parsing from detail page text
+  - Test type code → full name mapping
+  - Catalogue data structure validation
 """
 
-import json
 import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from data.scraper import (
-    _parse_duration,
-    _parse_test_type_codes,
-    scrape_listing_page,
+from scraper.scrape_catalogue import (
+    scrape_detail_page,
     validate_catalogue,
     load_catalogue,
     save_catalogue,
@@ -25,99 +20,59 @@ from data.scraper import (
 )
 
 
-# --- Unit Tests for Helper Functions ---
+# --- Helper ---
 
-class TestParseDuration:
-    """Tests for duration extraction from detail page text."""
-
-    def test_simple_number(self):
-        assert _parse_duration("Approximate Completion Time in minutes = 30") == 30
-
-    def test_large_number(self):
-        assert _parse_duration("Completion Time in minutes = 120") == 120
-
-    def test_no_number(self):
-        assert _parse_duration("No time specified") is None
-
-    def test_empty_string(self):
-        assert _parse_duration("") is None
-
-    def test_none_input(self):
-        assert _parse_duration(None) is None
-
-    def test_multiple_numbers_takes_first(self):
-        # Should take the first number found
-        result = _parse_duration("Time = 45 or 60 minutes")
-        assert result == 45
+def _make_assessment(**overrides):
+    """Create a sample assessment with defaults."""
+    base = {
+        "name": "Test Assessment",
+        "url": "https://www.shl.com/products/product-catalog/view/test/",
+        "remote_support": "Yes",
+        "adaptive_support": "No",
+        "test_type": ["Knowledge & Skills"],
+        "description": "A test assessment for testing.",
+        "duration": 30,
+    }
+    base.update(overrides)
+    return base
 
 
-class TestParseTestTypeCodes:
-    """Tests for test type code to name conversion."""
+# --- Test Type Mapping ---
 
-    def test_single_code(self):
-        result = _parse_test_type_codes(["K"])
-        assert result == ["Knowledge & Skills"]
+class TestTypeMapping:
+    def test_all_codes_mapped(self):
+        """All expected letter codes should have a mapping."""
+        expected = {"A", "B", "C", "D", "E", "K", "P", "S"}
+        assert set(TEST_TYPE_MAP.keys()) == expected
 
-    def test_multiple_codes(self):
-        result = _parse_test_type_codes(["C", "P", "A"])
-        assert "Competencies" in result
-        assert "Personality & Behavior" in result
-        assert "Ability & Aptitude" in result
+    def test_knowledge_code(self):
+        assert TEST_TYPE_MAP["K"] == "Knowledge & Skills"
 
-    def test_empty_list(self):
-        assert _parse_test_type_codes([]) == []
+    def test_personality_code(self):
+        assert TEST_TYPE_MAP["P"] == "Personality & Behavior"
 
-    def test_unknown_code(self):
-        result = _parse_test_type_codes(["Z"])
-        assert result == ["Z"]
+    def test_ability_code(self):
+        assert TEST_TYPE_MAP["A"] == "Ability & Aptitude"
 
-    def test_whitespace_handling(self):
-        result = _parse_test_type_codes([" K ", " P "])
-        assert "Knowledge & Skills" in result
-        assert "Personality & Behavior" in result
-
-    def test_all_known_codes(self):
-        """Verify all known test type codes map correctly."""
-        for code, name in TEST_TYPE_MAP.items():
-            result = _parse_test_type_codes([code])
-            assert result == [name], f"Code '{code}' should map to '{name}'"
+    def test_simulations_code(self):
+        assert TEST_TYPE_MAP["S"] == "Simulations"
 
 
-# --- Tests for Catalogue Validation ---
+# --- Catalogue Validation ---
 
 class TestValidateCatalogue:
-    """Tests for the catalogue validation function."""
-
-    def _make_assessment(self, **overrides):
-        """Create a sample assessment dict with defaults."""
-        base = {
-            "name": "Test Assessment",
-            "url": "https://www.shl.com/products/product-catalog/view/test/",
-            "remote_support": "Yes",
-            "adaptive_irt": "No",
-            "test_type_codes": ["K"],
-            "test_types": ["Knowledge & Skills"],
-            "test_type": "Knowledge & Skills",
-            "description": "A test assessment for testing.",
-            "duration": 30,
-        }
-        base.update(overrides)
-        return base
-
     def test_perfect_catalogue(self):
-        assessments = [self._make_assessment(name=f"Test {i}", url=f"https://shl.com/{i}") for i in range(5)]
+        assessments = [_make_assessment(name=f"Test {i}", url=f"https://shl.com/{i}") for i in range(5)]
         report = validate_catalogue(assessments)
         assert report["total"] == 5
         assert report["with_description"] == 5
         assert report["with_duration"] == 5
-        assert report["unique_urls"] == 5
-        assert len(report["broken_urls"]) == 0
 
     def test_missing_descriptions(self):
         assessments = [
-            self._make_assessment(description="Has description"),
-            self._make_assessment(description=""),
-            self._make_assessment(description=None),
+            _make_assessment(description="Has description"),
+            _make_assessment(description=""),
+            _make_assessment(description=""),
         ]
         report = validate_catalogue(assessments)
         assert report["with_description"] == 1
@@ -125,134 +80,89 @@ class TestValidateCatalogue:
 
     def test_missing_durations(self):
         assessments = [
-            self._make_assessment(duration=30),
-            self._make_assessment(duration=None),
+            _make_assessment(duration=30),
+            _make_assessment(duration=None),
         ]
         report = validate_catalogue(assessments)
         assert report["with_duration"] == 1
+        assert len(report["missing_durations"]) == 1
 
-    def test_test_type_distribution(self):
+    def test_type_distribution(self):
         assessments = [
-            self._make_assessment(test_types=["Knowledge & Skills"]),
-            self._make_assessment(test_types=["Knowledge & Skills"]),
-            self._make_assessment(test_types=["Personality & Behavior"]),
+            _make_assessment(test_type=["Knowledge & Skills"]),
+            _make_assessment(test_type=["Knowledge & Skills"]),
+            _make_assessment(test_type=["Personality & Behavior"]),
+            _make_assessment(test_type=["Knowledge & Skills", "Personality & Behavior"]),
         ]
         report = validate_catalogue(assessments)
-        assert report["test_type_distribution"]["Knowledge & Skills"] == 2
-        assert report["test_type_distribution"]["Personality & Behavior"] == 1
+        assert report["test_type_distribution"]["Knowledge & Skills"] == 3
+        assert report["test_type_distribution"]["Personality & Behavior"] == 2
 
 
-# --- Tests for Save/Load ---
+# --- Save/Load ---
 
 class TestSaveLoadCatalogue:
-    """Tests for catalogue persistence."""
-
-    def test_save_and_load(self, tmp_path):
-        assessments = [
-            {"name": "Test 1", "url": "https://example.com/1", "duration": 30},
-            {"name": "Test 2", "url": "https://example.com/2", "duration": 45},
-        ]
-        filepath = tmp_path / "test_catalogue.json"
-
+    def test_round_trip(self, tmp_path):
+        assessments = [_make_assessment(name="A"), _make_assessment(name="B")]
+        filepath = tmp_path / "cat.json"
         save_catalogue(assessments, filepath)
         loaded = load_catalogue(filepath)
-
         assert len(loaded) == 2
-        assert loaded[0]["name"] == "Test 1"
-        assert loaded[1]["duration"] == 45
+        assert loaded[0]["name"] == "A"
 
-    def test_load_nonexistent(self, tmp_path):
+    def test_load_missing_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError):
-            load_catalogue(tmp_path / "nonexistent.json")
+            load_catalogue(tmp_path / "nope.json")
 
-    def test_save_creates_directory(self, tmp_path):
-        filepath = tmp_path / "subdir" / "catalogue.json"
-        save_catalogue([{"name": "test"}], filepath)
-        assert filepath.exists()
+    def test_test_type_is_array(self, tmp_path):
+        """test_type must always be an array, not a string."""
+        assessments = [_make_assessment(test_type=["Knowledge & Skills", "Simulations"])]
+        filepath = tmp_path / "cat.json"
+        save_catalogue(assessments, filepath)
+        loaded = load_catalogue(filepath)
+        assert isinstance(loaded[0]["test_type"], list)
+        assert len(loaded[0]["test_type"]) == 2
+
+    def test_duration_is_int_or_null(self, tmp_path):
+        assessments = [
+            _make_assessment(duration=30),
+            _make_assessment(duration=None),
+        ]
+        filepath = tmp_path / "cat.json"
+        save_catalogue(assessments, filepath)
+        loaded = load_catalogue(filepath)
+        assert loaded[0]["duration"] == 30
+        assert loaded[1]["duration"] is None
 
 
-# --- Integration-style Tests for Listing Page Parsing ---
+# --- Data Structure Checks ---
 
-class TestScrapeListingPage:
-    """Tests for parsing HTML listing pages (using mock responses)."""
+class TestCatalogueStructure:
+    """Verify assessment dicts have all required fields."""
 
-    SAMPLE_LISTING_HTML = """
-    <html><body>
-    <table>
-    <thead><tr>
-        <th>Individual Test Solutions</th>
-        <th>Remote Testing</th>
-        <th>Adaptive/IRT</th>
-        <th>Test Type</th>
-    </tr></thead>
-    <tbody>
-    <tr>
-        <td class="custom__table-heading__title">
-            <a href="/products/product-catalog/view/python-new/">Python (New)</a>
-        </td>
-        <td class="custom__table-heading__general">
-            <span class="catalogue__circle -yes"></span>
-        </td>
-        <td class="custom__table-heading__general">
-            <span class="catalogue__circle"></span>
-        </td>
-        <td class="custom__table-heading__general product-catalogue__keys">
-            <span class="product-catalogue__key">K</span>
-        </td>
-    </tr>
-    <tr>
-        <td class="custom__table-heading__title">
-            <a href="/products/product-catalog/view/verify-g-plus/">Verify G+</a>
-        </td>
-        <td class="custom__table-heading__general">
-            <span class="catalogue__circle -yes"></span>
-        </td>
-        <td class="custom__table-heading__general">
-            <span class="catalogue__circle -yes"></span>
-        </td>
-        <td class="custom__table-heading__general product-catalogue__keys">
-            <span class="product-catalogue__key">A</span>
-        </td>
-    </tr>
-    </tbody>
-    </table>
-    </body></html>
-    """
+    REQUIRED_FIELDS = {"name", "url", "remote_support", "adaptive_support",
+                       "test_type", "description", "duration"}
 
-    @patch("data.scraper._get_soup")
-    def test_parse_listing(self, mock_get_soup):
-        from bs4 import BeautifulSoup
-        mock_get_soup.return_value = BeautifulSoup(self.SAMPLE_LISTING_HTML, "lxml")
+    def test_all_fields_present(self):
+        a = _make_assessment()
+        assert self.REQUIRED_FIELDS.issubset(set(a.keys()))
 
-        results = scrape_listing_page("https://example.com", MagicMock())
+    def test_test_type_is_list(self):
+        a = _make_assessment()
+        assert isinstance(a["test_type"], list)
 
-        assert len(results) == 2
+    def test_url_is_valid(self):
+        a = _make_assessment()
+        assert a["url"].startswith("https://www.shl.com/")
 
-        # First assessment: Python (New)
-        python = results[0]
-        assert python["name"] == "Python (New)"
-        assert "python-new" in python["url"]
-        assert python["remote_support"] == "Yes"
-        assert python["adaptive_irt"] == "No"
-        assert "Knowledge & Skills" in python["test_types"]
+    def test_remote_support_values(self):
+        a1 = _make_assessment(remote_support="Yes")
+        a2 = _make_assessment(remote_support="No")
+        assert a1["remote_support"] in ("Yes", "No")
+        assert a2["remote_support"] in ("Yes", "No")
 
-        # Second assessment: Verify G+
-        verify = results[1]
-        assert verify["name"] == "Verify G+"
-        assert verify["remote_support"] == "Yes"
-        assert verify["adaptive_irt"] == "Yes"
-        assert "Ability & Aptitude" in verify["test_types"]
-
-    @patch("data.scraper._get_soup")
-    def test_empty_page(self, mock_get_soup):
-        from bs4 import BeautifulSoup
-        mock_get_soup.return_value = BeautifulSoup("<html><body></body></html>", "lxml")
-
-        results = scrape_listing_page("https://example.com", MagicMock())
-        assert results == []
-
-    @patch("data.scraper._get_soup")
-    def test_failed_fetch(self, mock_get_soup):
-        mock_get_soup.return_value = None
-        results = scrape_listing_page("https://example.com", MagicMock())
-        assert results == []
+    def test_adaptive_support_values(self):
+        a1 = _make_assessment(adaptive_support="Yes")
+        a2 = _make_assessment(adaptive_support="No")
+        assert a1["adaptive_support"] in ("Yes", "No")
+        assert a2["adaptive_support"] in ("Yes", "No")

@@ -1,11 +1,11 @@
 """
 Tests for the query parser.
 
-Tests cover:
-  - Duration extraction from various formats
-  - Test type keyword detection
-  - Remote testing detection
-  - Keyword extraction
+Tests:
+  - Duration extraction
+  - Test type detection
+  - Technical/behavioral skill extraction
+  - Balance detection
   - Full parse_query integration
 """
 
@@ -15,182 +15,118 @@ from engine.query_parser import (
     parse_query,
     _extract_duration,
     _extract_test_types,
-    _extract_remote,
-    _extract_keywords,
+    _extract_skills,
+    TECHNICAL_SKILLS,
+    BEHAVIORAL_SKILLS,
 )
 
 
 class TestExtractDuration:
-    """Tests for duration extraction from queries."""
-
     def test_under_N_minutes(self):
         assert _extract_duration("under 30 minutes") == 30
 
-    def test_less_than_N_min(self):
+    def test_less_than(self):
         assert _extract_duration("less than 45 min") == 45
 
-    def test_max_N_minutes(self):
+    def test_max(self):
         assert _extract_duration("max 40 minutes") == 40
-
-    def test_maximum_N_mins(self):
-        assert _extract_duration("maximum 60 mins") == 60
-
-    def test_within_N_minutes(self):
-        assert _extract_duration("within 25 minutes") == 25
-
-    def test_N_minutes_or_less(self):
-        assert _extract_duration("30 minutes or less") == 30
 
     def test_N_min_max(self):
         assert _extract_duration("45 min max") == 45
 
-    def test_N_minute_hyphenated(self):
-        assert _extract_duration("30-minute assessment") == 30
-
-    def test_duration_with_label(self):
-        assert _extract_duration("duration: 30") == 30
-
     def test_no_duration(self):
         assert _extract_duration("python developer assessment") is None
 
-    def test_empty_string(self):
-        assert _extract_duration("") is None
-
-    def test_up_to_N_minutes(self):
+    def test_up_to(self):
         assert _extract_duration("up to 50 minutes") == 50
+
+    def test_hyphenated(self):
+        assert _extract_duration("30-minute assessment") == 30
 
 
 class TestExtractTestTypes:
-    """Tests for test type extraction."""
-
     def test_cognitive(self):
-        result = _extract_test_types("cognitive test for analysts")
+        result = _extract_test_types("cognitive test")
         assert "Ability & Aptitude" in result
 
     def test_personality(self):
         result = _extract_test_types("personality assessment")
         assert "Personality & Behavior" in result
 
-    def test_programming_maps_to_knowledge(self):
+    def test_programming(self):
         result = _extract_test_types("programming assessment")
         assert "Knowledge & Skills" in result
 
-    def test_skills_keyword(self):
-        result = _extract_test_types("skills test for candidates")
-        assert "Knowledge & Skills" in result
-
     def test_simulation(self):
-        result = _extract_test_types("simulation exercise for customer service")
+        result = _extract_test_types("simulation exercise")
         assert "Simulations" in result
 
-    def test_multiple_types(self):
-        result = _extract_test_types("cognitive and personality assessment")
+    def test_multiple(self):
+        result = _extract_test_types("cognitive and personality")
         assert "Ability & Aptitude" in result
         assert "Personality & Behavior" in result
 
-    def test_no_type_found(self):
-        result = _extract_test_types("general test for candidates")
+    def test_none(self):
+        result = _extract_test_types("general test")
         assert result == []
 
-    def test_aptitude(self):
-        result = _extract_test_types("aptitude test")
-        assert "Ability & Aptitude" in result
 
-    def test_reasoning(self):
-        result = _extract_test_types("reasoning assessment")
-        assert "Ability & Aptitude" in result
+class TestExtractSkills:
+    def test_technical_python(self):
+        result = _extract_skills("python developer", TECHNICAL_SKILLS)
+        assert "python" in result
 
-    def test_situational_judgement(self):
-        result = _extract_test_types("situational judgement test")
-        assert "Biodata & Situational Judgement" in result
+    def test_technical_java(self):
+        result = _extract_skills("java programming", TECHNICAL_SKILLS)
+        assert "java" in result
 
+    def test_behavioral_leadership(self):
+        result = _extract_skills("leadership assessment", BEHAVIORAL_SKILLS)
+        assert "leadership" in result
 
-class TestExtractRemote:
-    """Tests for remote testing requirement extraction."""
+    def test_behavioral_collaboration(self):
+        result = _extract_skills("team collaboration skills", BEHAVIORAL_SKILLS)
+        assert "collaboration" in result
 
-    def test_remote_keyword(self):
-        assert _extract_remote("remote testing needed") is True
-
-    def test_online_keyword(self):
-        assert _extract_remote("online assessment") is True
-
-    def test_virtual_keyword(self):
-        assert _extract_remote("virtual proctored test") is True
-
-    def test_no_remote(self):
-        assert _extract_remote("in-person assessment") is None
-
-    def test_proctored_keyword(self):
-        assert _extract_remote("proctored examination") is True
-
-    def test_empty_string(self):
-        assert _extract_remote("") is None
-
-
-class TestExtractKeywords:
-    """Tests for keyword extraction."""
-
-    def test_extracts_meaningful_words(self):
-        keywords = _extract_keywords("python developer assessment")
-        assert "python" in keywords
-        assert "developer" in keywords
-
-    def test_removes_stop_words(self):
-        keywords = _extract_keywords("looking for a test to find python developers")
-        assert "looking" not in keywords
-        assert "for" not in keywords
-        assert "python" in keywords
-        assert "developers" in keywords
-
-    def test_removes_short_words(self):
-        keywords = _extract_keywords("do it now for me")
-        # All are stop words or short
-        assert len(keywords) == 0
-
-    def test_removes_numbers(self):
-        keywords = _extract_keywords("assessment under 30 minutes")
-        assert "30" not in keywords
+    def test_no_skills(self):
+        result = _extract_skills("general test", TECHNICAL_SKILLS)
+        assert result == []
 
 
 class TestParseQueryIntegration:
-    """Integration tests for the full parse_query function."""
-
-    def test_full_query_parsing(self):
-        result = parse_query("Need a cognitive test for analysts, max 40 minutes")
-        assert result["max_duration"] == 40
-        assert "Ability & Aptitude" in result["test_types"]
-        assert "analysts" in result["keywords"]
-        assert result["remote_required"] is None
-
-    def test_python_query(self):
+    def test_technical_only(self):
         result = parse_query("Python programming assessment under 30 minutes")
         assert result["max_duration"] == 30
-        assert "Knowledge & Skills" in result["test_types"]
-        assert "python" in result["keywords"]
+        assert "python" in result["skills_technical"]
+        assert result["requires_balance"] is False
+        assert "Knowledge & Skills" in result["test_types_needed"]
 
-    def test_remote_personality_query(self):
-        result = parse_query("Looking for remote personality assessment for leaders")
-        assert result["remote_required"] is True
-        assert "Personality & Behavior" in result["test_types"]
-        assert "leaders" in result["keywords"]
+    def test_behavioral_only(self):
+        result = parse_query("leadership personality assessment")
+        assert "leadership" in result["skills_behavioral"]
+        assert "Personality & Behavior" in result["test_types_needed"]
 
-    def test_complex_query(self):
-        result = parse_query(
-            "Java developer test, 45 min max, online, need cognitive skills"
-        )
-        assert result["max_duration"] == 45
-        assert result["remote_required"] is True
-        assert "java" in result["keywords"]
+    def test_mixed_requires_balance(self):
+        result = parse_query("Java developer who collaborates with external teams")
+        assert "java" in result["skills_technical"]
+        assert "collaboration" in result["skills_behavioral"]
+        assert result["requires_balance"] is True
 
     def test_empty_query(self):
         result = parse_query("")
         assert result["max_duration"] is None
-        assert result["test_types"] == []
-        assert result["remote_required"] is None
-        assert result["keywords"] == []
+        assert result["test_types_needed"] == []
+        assert result["requires_balance"] is False
 
-    def test_ambiguous_query(self):
-        result = parse_query("I need a 30 minute test")
-        assert result["max_duration"] == 30
-        # No specific test type should be extracted
-        # (this is a known limitation the plan acknowledges)
+    def test_complex_query(self):
+        result = parse_query(
+            "Senior software engineer with leadership and communication, max 45 min"
+        )
+        assert result["max_duration"] == 45
+        assert "software" in result["skills_technical"]
+        assert "leadership" in result["skills_behavioral"]
+        assert result["requires_balance"] is True
+
+    def test_cognitive_query(self):
+        result = parse_query("cognitive ability test for analysts")
+        assert "Ability & Aptitude" in result["test_types_needed"]

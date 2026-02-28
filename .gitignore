@@ -212,10 +212,14 @@ __marimo__/
 .cache/
 
 # Pre-computed embeddings (regenerated from catalogue data)
-data/embeddings.npy
+*.npy
 
 # Personal planning notes
 shl_battle_plan.md
+shl_clean_build.md
+
+# Assignment PDF (personal copy)
+*.pdf
 
 # OS files
 Thumbs.db
@@ -224,3 +228,6 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Environment variables (API keys)
+.env

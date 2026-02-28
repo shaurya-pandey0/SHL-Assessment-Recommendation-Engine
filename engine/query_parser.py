@@ -1,30 +1,177 @@
 """
-Query parser for extracting structured constraints from natural language queries.
+Query parser for extracting structured intent from natural language queries.
 
-Uses rule-based extraction (regex + keyword matching) — no LLM needed.
-This ensures fast, deterministic, testable parsing that works offline.
+Two modes:
+  1. Gemini-powered (Phase 3): Uses Google Gemini 1.5 Flash for intelligent
+     extraction. Set GEMINI_API_KEY env var to enable.
+  2. Rule-based fallback: Fast, deterministic, no API needed.
+
+If Gemini API fails or key is missing, falls back to rule-based automatically.
+The system NEVER crashes because of an LLM API failure.
 
 Extracts:
+  - job_role: detected job role
+  - skills_technical: technical skill keywords
+  - skills_behavioral: soft/behavioral skill keywords
   - max_duration: maximum assessment duration in minutes
-  - test_types: list of desired test type categories
-  - remote_required: whether remote testing is required
-  - keywords: remaining important keywords for context
+  - test_types_needed: list of desired test type categories
+  - requires_balance: True if BOTH technical AND behavioral skills detected
 """
 
+import os
 import re
+import json
+import logging
 from typing import Optional
 
+from dotenv import load_dotenv
+load_dotenv()
 
-# Test type keywords and their canonical names
+logger = logging.getLogger(__name__)
+
+
+# ── Gemini Integration ───────────────────────────────────────────────────────
+
+GEMINI_PROMPT = '''Analyze this hiring/assessment query and extract structured information.
+Return ONLY valid JSON, no markdown fences, no other text.
+
+Query: "{query}"
+
+Return this JSON structure:
+{{
+  "job_role": "string or null",
+  "skills_technical": ["list of technical skills mentioned"],
+  "skills_behavioral": ["list of soft/behavioral skills mentioned"],
+  "max_duration": integer or null,
+  "test_types_needed": ["list from: Knowledge & Skills, Personality & Behavior, Ability & Aptitude, Competencies, Biodata & Situational Judgement, Simulations, Development & 360, Assessment Exercises"],
+  "requires_balance": true or false
+}}
+
+Rules:
+- If the query mentions both technical skills (coding, programming, etc.)
+  AND soft skills (collaboration, communication, leadership, etc.),
+  set requires_balance to true and include both test types.
+- If only technical: test_types_needed = ["Knowledge & Skills"]
+- If only behavioral: test_types_needed = ["Personality & Behavior", "Competencies"]
+- If cognitive/aptitude mentioned: include "Ability & Aptitude"
+- If duration limit mentioned (e.g. "under 30 minutes"), extract as integer minutes
+- max_duration should be null if no time constraint is mentioned
+- job_role should be the specific role mentioned (e.g. "software developer", "analyst")
+'''
+
+_gemini_client = None
+
+
+def _get_gemini_client():
+    """Lazy-load Gemini client."""
+    global _gemini_client
+    if _gemini_client is None:
+        api_key = (os.environ.get("GEMINI_API_KEY")
+                   or os.environ.get("GOOGLE_API_KEY")
+                   or os.environ.get("API_KEY"))
+        if not api_key:
+            return None
+        try:
+            from google import genai
+            _gemini_client = genai.Client(api_key=api_key)
+            logger.info("Gemini client loaded successfully.")
+        except Exception as e:
+            logger.warning(f"Failed to load Gemini client: {e}")
+            return None
+    return _gemini_client
+
+
+def _parse_with_gemini(query: str) -> Optional[dict]:
+    """
+    Parse query using Gemini API.
+
+    Returns parsed dict on success, None on failure (triggers fallback).
+    """
+    client = _get_gemini_client()
+    if client is None:
+        return None
+
+    try:
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=GEMINI_PROMPT.format(query=query),
+            config={"temperature": 0.1, "max_output_tokens": 500},
+        )
+
+        # Extract JSON from response
+        text = response.text.strip()
+
+        # Remove markdown code fences if present
+        if text.startswith("```"):
+            text = re.sub(r"^```(?:json)?\s*", "", text)
+            text = re.sub(r"\s*```$", "", text)
+
+        parsed = json.loads(text)
+
+        # Validate required fields exist
+        required = {"job_role", "skills_technical", "skills_behavioral",
+                     "max_duration", "test_types_needed", "requires_balance"}
+        if not required.issubset(set(parsed.keys())):
+            logger.warning(f"Gemini response missing fields: {required - set(parsed.keys())}")
+            return None
+
+        # Ensure lists are actually lists
+        for field in ["skills_technical", "skills_behavioral", "test_types_needed"]:
+            if not isinstance(parsed.get(field), list):
+                parsed[field] = []
+
+        # Ensure max_duration is int or None
+        if parsed.get("max_duration") is not None:
+            try:
+                parsed["max_duration"] = int(parsed["max_duration"])
+            except (ValueError, TypeError):
+                parsed["max_duration"] = None
+
+        logger.info(f"Gemini parse successful: {parsed}")
+        return parsed
+
+    except Exception as e:
+        logger.warning(f"Gemini parsing failed: {e}. Falling back to rule-based.")
+        return None
+
+
+# ── Rule-Based Parser (Fallback) ─────────────────────────────────────────────
+
+# Technical skill keywords
+TECHNICAL_SKILLS = {
+    "python", "java", "javascript", "sql", "html", "css", "react",
+    "angular", "node", "typescript", "c++", "c#", ".net", "ruby",
+    "php", "swift", "kotlin", "go", "rust", "scala", "r",
+    "aws", "azure", "gcp", "docker", "kubernetes", "linux",
+    "git", "api", "rest", "graphql", "database", "data",
+    "machine learning", "ai", "devops", "cloud", "networking",
+    "security", "testing", "qa", "automation", "analytics",
+    "programming", "coding", "software", "engineering", "development",
+    "technical", "technology", "it", "systems", "infrastructure",
+    "accounting", "bookkeeping", "finance", "excel", "sap",
+    "autocad", "mechanical", "electrical", "cisco", "vmware",
+}
+
+# Behavioral/soft skill keywords
+BEHAVIORAL_SKILLS = {
+    "leadership", "communication", "collaboration", "teamwork",
+    "management", "interpersonal", "negotiation", "presentation",
+    "problem solving", "critical thinking", "decision making",
+    "emotional intelligence", "empathy", "adaptability", "flexibility",
+    "creativity", "innovation", "strategic", "planning", "coaching",
+    "mentoring", "conflict resolution", "customer service",
+    "stakeholder", "relationship", "influence", "motivation",
+    "personality", "behavioral", "behavioural", "soft skills",
+    "people skills", "cultural fit", "work style", "attitude",
+}
+
+# Test type keywords → canonical names
 TEST_TYPE_KEYWORDS = {
-    # Knowledge & Skills
     "knowledge": "Knowledge & Skills",
     "skills": "Knowledge & Skills",
     "programming": "Knowledge & Skills",
     "coding": "Knowledge & Skills",
     "technical": "Knowledge & Skills",
-
-    # Cognitive / Ability & Aptitude
     "cognitive": "Ability & Aptitude",
     "aptitude": "Ability & Aptitude",
     "ability": "Ability & Aptitude",
@@ -35,103 +182,100 @@ TEST_TYPE_KEYWORDS = {
     "analytical": "Ability & Aptitude",
     "inductive": "Ability & Aptitude",
     "deductive": "Ability & Aptitude",
-
-    # Personality & Behavior
     "personality": "Personality & Behavior",
     "behavior": "Personality & Behavior",
     "behavioural": "Personality & Behavior",
     "behavioral": "Personality & Behavior",
     "leadership": "Personality & Behavior",
     "motivation": "Personality & Behavior",
-
-    # Competencies
     "competency": "Competencies",
     "competencies": "Competencies",
-
-    # Biodata & Situational Judgement
     "biodata": "Biodata & Situational Judgement",
     "situational": "Biodata & Situational Judgement",
     "judgement": "Biodata & Situational Judgement",
     "judgment": "Biodata & Situational Judgement",
-
-    # Simulations
     "simulation": "Simulations",
     "simulations": "Simulations",
-
-    # Development & 360
     "development": "Development & 360",
     "360": "Development & 360",
-
-    # Assessment Exercises
     "exercise": "Assessment Exercises",
     "exercises": "Assessment Exercises",
-    "role-play": "Assessment Exercises",
-    "roleplay": "Assessment Exercises",
-    "in-basket": "Assessment Exercises",
-    "inbox": "Assessment Exercises",
 }
 
-# Duration extraction patterns
 DURATION_PATTERNS = [
-    # "under 30 minutes", "less than 30 min", "max 40 mins"
     r"(?:under|less\s+than|max(?:imum)?|within|up\s+to|no\s+more\s+than)\s+(\d+)\s*(?:min(?:ute)?s?|mins?)",
-    # "30 minutes or less", "40 min max"
     r"(\d+)\s*(?:min(?:ute)?s?|mins?)\s+(?:or\s+less|max(?:imum)?|or\s+under)",
-    # "duration: 30", "time: 30 minutes", "30-minute"
     r"(?:duration|time|length)[\s:]*(\d+)\s*(?:min(?:ute)?s?|mins?)?",
     r"(\d+)[-\s]?min(?:ute)?s?\b",
 ]
 
-# Remote testing keywords
-REMOTE_KEYWORDS = [
-    "remote", "online", "virtual", "proctored",
-    "work from home", "wfh", "distance",
-]
-
-# Words to strip from keyword extraction (stop words + parsed constraints)
-STOP_WORDS = {
-    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
-    "have", "has", "had", "do", "does", "did", "will", "would", "could",
-    "should", "might", "can", "may", "shall", "must", "need", "want",
-    "looking", "for", "to", "in", "on", "at", "by", "with", "from",
-    "of", "and", "or", "but", "not", "no", "that", "this", "it",
-    "i", "we", "they", "me", "us", "my", "our", "your", "their",
-    "test", "tests", "assessment", "assessments", "exam", "exams",
-    "under", "less", "than", "max", "maximum", "within", "up",
-    "minutes", "minute", "mins", "min", "duration", "time", "length",
-    "find", "search", "get", "give", "show", "provide", "recommend",
-    "also", "about", "like", "such", "some", "any", "please",
+JOB_ROLES = {
+    "developer", "engineer", "analyst", "manager", "director",
+    "designer", "architect", "administrator", "consultant",
+    "specialist", "coordinator", "executive", "supervisor",
+    "assistant", "officer", "representative", "agent",
+    "technician", "operator", "clerk", "accountant",
+    "graduate", "intern", "junior", "senior", "mid-level",
+    "entry-level", "professional",
 }
 
+
+def _parse_rule_based(query: str) -> dict:
+    """Rule-based fallback parser. Fast, deterministic, no API needed."""
+    query_lower = query.lower().strip()
+
+    skills_tech = _extract_skills(query_lower, TECHNICAL_SKILLS)
+    skills_behav = _extract_skills(query_lower, BEHAVIORAL_SKILLS)
+    test_types = _extract_test_types(query_lower)
+
+    if skills_tech and "Knowledge & Skills" not in test_types:
+        test_types.append("Knowledge & Skills")
+    if skills_behav and "Personality & Behavior" not in test_types:
+        test_types.append("Personality & Behavior")
+    if skills_behav and "Competencies" not in test_types:
+        test_types.append("Competencies")
+
+    requires_balance = bool(skills_tech) and bool(skills_behav)
+
+    return {
+        "job_role": _extract_job_role(query_lower),
+        "skills_technical": skills_tech,
+        "skills_behavioral": skills_behav,
+        "max_duration": _extract_duration(query_lower),
+        "test_types_needed": sorted(set(test_types)),
+        "requires_balance": requires_balance,
+    }
+
+
+# ── Public API ───────────────────────────────────────────────────────────────
 
 def parse_query(query: str) -> dict:
     """
     Parse a natural language query into structured constraints.
 
-    Args:
-        query: Natural language query string.
+    Tries Gemini first (if API key available), falls back to rule-based.
 
-    Returns:
-        Dictionary with keys:
-            - max_duration: int or None
-            - test_types: list of test type strings
-            - remote_required: bool or None
-            - keywords: list of remaining relevant keywords
+    Returns dict with:
+        - job_role: str or None
+        - skills_technical: list[str]
+        - skills_behavioral: list[str]
+        - max_duration: int or None
+        - test_types_needed: list[str]
+        - requires_balance: bool
     """
-    query_lower = query.lower().strip()
+    # Try Gemini first
+    result = _parse_with_gemini(query)
+    if result is not None:
+        return result
 
-    result = {
-        "max_duration": _extract_duration(query_lower),
-        "test_types": _extract_test_types(query_lower),
-        "remote_required": _extract_remote(query_lower),
-        "keywords": _extract_keywords(query_lower),
-    }
+    # Fallback to rule-based
+    return _parse_rule_based(query)
 
-    return result
 
+# ── Helper Functions ─────────────────────────────────────────────────────────
 
 def _extract_duration(query: str) -> Optional[int]:
-    """Extract maximum duration constraint from query."""
+    """Extract maximum duration constraint."""
     for pattern in DURATION_PATTERNS:
         match = re.search(pattern, query, re.IGNORECASE)
         if match:
@@ -144,64 +288,51 @@ def _extract_duration(query: str) -> Optional[int]:
 
 def _extract_test_types(query: str) -> list[str]:
     """Extract desired test types from query keywords."""
-    found_types = set()
-
-    # Tokenize and check each word
+    found = set()
     words = re.findall(r"[\w'-]+", query)
     for word in words:
-        word_lower = word.lower()
-        if word_lower in TEST_TYPE_KEYWORDS:
-            found_types.add(TEST_TYPE_KEYWORDS[word_lower])
-
-    # Also check multi-word patterns
-    for phrase, test_type in TEST_TYPE_KEYWORDS.items():
-        if phrase in query:
-            found_types.add(test_type)
-
-    return sorted(found_types)
+        if word.lower() in TEST_TYPE_KEYWORDS:
+            found.add(TEST_TYPE_KEYWORDS[word.lower()])
+    return sorted(found)
 
 
-def _extract_remote(query: str) -> Optional[bool]:
-    """Check if remote testing is required."""
-    for keyword in REMOTE_KEYWORDS:
-        if keyword in query:
-            return True
-    return None
+def _extract_skills(query: str, skill_set: set) -> list[str]:
+    """Extract skills from query that match the given skill set."""
+    found = []
+    query_lower = query.lower()
 
+    # Check multi-word skills first (longer matches)
+    for skill in sorted(skill_set, key=len, reverse=True):
+        if " " in skill and skill in query_lower:
+            found.append(skill)
 
-def _extract_keywords(query: str) -> list[str]:
-    """Extract remaining meaningful keywords from the query."""
-    words = re.findall(r"[\w'-]+", query.lower())
-
-    # Filter out stop words, test type keywords, and short words
-    keywords = []
+    # Then single-word skills with fuzzy stem matching
+    words = set(re.findall(r"[\w#+.-]+", query_lower))
     for word in words:
-        if (
-            word not in STOP_WORDS
-            and word not in TEST_TYPE_KEYWORDS
-            and len(word) > 2
-            and not word.isdigit()
-        ):
-            keywords.append(word)
+        if word in skill_set and word not in found:
+            found.append(word)
+        elif len(word) >= 5:
+            # Stem-like matching: check if word shares a root with any skill
+            for skill in skill_set:
+                if " " in skill or len(skill) < 5:
+                    continue
+                prefix_len = min(len(word), len(skill)) - 2
+                if prefix_len < 5:
+                    continue
+                if (word[:prefix_len] == skill[:prefix_len]
+                    and skill not in found):
+                    found.append(skill)
+                    break
 
-    return keywords
+    return sorted(found)
 
 
-if __name__ == "__main__":
-    # Test with sample queries
-    test_queries = [
-        "Need a cognitive test for analysts, max 40 minutes",
-        "Python programming assessment under 30 minutes",
-        "Looking for remote personality assessment for leaders",
-        "Java developer test, 45 min max, online",
-        "Graduate numerical reasoning aptitude test",
-        "Customer service simulation exercise, less than 60 minutes",
-    ]
-
-    for query in test_queries:
-        result = parse_query(query)
-        print(f"\nQuery: '{query}'")
-        print(f"  Duration:  {result['max_duration']}")
-        print(f"  Types:     {result['test_types']}")
-        print(f"  Remote:    {result['remote_required']}")
-        print(f"  Keywords:  {result['keywords']}")
+def _extract_job_role(query: str) -> Optional[str]:
+    """Extract job role from query."""
+    words = re.findall(r"[\w-]+", query.lower())
+    for i, word in enumerate(words):
+        if word in JOB_ROLES:
+            if i > 0 and words[i-1] not in {"a", "an", "the", "for", "as"}:
+                return f"{words[i-1]} {word}"
+            return word
+    return None
