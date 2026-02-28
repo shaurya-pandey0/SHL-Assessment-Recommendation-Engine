@@ -205,3 +205,22 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# ===== Project-Specific =====
+
+# Sentence-transformer model cache (downloaded at runtime)
+.cache/
+
+# Pre-computed embeddings (regenerated from catalogue data)
+data/embeddings.npy
+
+# Personal planning notes
+shl_battle_plan.md
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
