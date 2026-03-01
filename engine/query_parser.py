@@ -162,7 +162,8 @@ BEHAVIORAL_SKILLS = {
     "mentoring", "conflict resolution", "customer service",
     "stakeholder", "relationship", "influence", "motivation",
     "personality", "behavioral", "behavioural", "soft skills",
-    "people skills", "cultural fit", "work style", "attitude",
+    "people skills", "cultural fit", "culture", "work style", "attitude",
+    "right fit", "team fit", "organizational fit",
 }
 
 # Test type keywords → canonical names
@@ -207,6 +208,8 @@ DURATION_PATTERNS = [
     r"(\d+)\s*(?:min(?:ute)?s?|mins?)\s+(?:or\s+less|max(?:imum)?|or\s+under)",
     r"(?:duration|time|length)[\s:]*(\d+)\s*(?:min(?:ute)?s?|mins?)?",
     r"(\d+)[-\s]?min(?:ute)?s?\b",
+    r"(?:about|around|approximately)\s+(?:an?\s+)?hour",  # "about an hour" → 60 min
+    r"(\d+)[-\s]?hours?\b",  # "1-2 hours" → captures first number
 ]
 
 JOB_ROLES = {
@@ -217,7 +220,12 @@ JOB_ROLES = {
     "technician", "operator", "clerk", "accountant",
     "graduate", "intern", "junior", "senior", "mid-level",
     "entry-level", "professional",
+    # C-suite titles
+    "coo", "ceo", "cto", "cfo", "cmo", "cio", "vp",
 }
+
+# Executive titles that imply leadership/personality assessment needs
+EXECUTIVE_TITLES = {"coo", "ceo", "cto", "cfo", "cmo", "cio", "vp", "director", "executive"}
 
 
 def _parse_rule_based(query: str) -> dict:
@@ -235,10 +243,19 @@ def _parse_rule_based(query: str) -> dict:
     if skills_behav and "Competencies" not in test_types:
         test_types.append("Competencies")
 
+    # Detect executive titles → auto-add leadership/personality context
+    job_role = _extract_job_role(query_lower)
+    words = set(re.findall(r"[\w-]+", query_lower))
+    if words & EXECUTIVE_TITLES:
+        if "leadership" not in skills_behav:
+            skills_behav.append("leadership")
+        if "Personality & Behavior" not in test_types:
+            test_types.append("Personality & Behavior")
+
     requires_balance = bool(skills_tech) and bool(skills_behav)
 
     return {
-        "job_role": _extract_job_role(query_lower),
+        "job_role": job_role,
         "skills_technical": skills_tech,
         "skills_behavioral": skills_behav,
         "max_duration": _extract_duration(query_lower),
@@ -276,6 +293,14 @@ def parse_query(query: str) -> dict:
 
 def _extract_duration(query: str) -> Optional[int]:
     """Extract maximum duration constraint."""
+    # Handle "about an hour" / "about X hours" first
+    if re.search(r"(?:about|around|approximately)\s+(?:an?\s+)?hour\b", query, re.IGNORECASE):
+        return 60
+    # Handle "X hours" → convert to minutes
+    hours_match = re.search(r"(\d+)(?:\s*-\s*\d+)?\s*hours?\b", query, re.IGNORECASE)
+    if hours_match:
+        return int(hours_match.group(1)) * 60
+
     for pattern in DURATION_PATTERNS:
         match = re.search(pattern, query, re.IGNORECASE)
         if match:

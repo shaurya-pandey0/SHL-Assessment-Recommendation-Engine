@@ -72,7 +72,7 @@ def generate_predictions(output_path: Path = None):
         writer.writerows(rows)
 
     logger.info(f"Saved {len(rows)} predictions to {output_path}")
-    print(f"\n✅ Generated {len(rows)} predictions across {len(test_data)} queries")
+    print(f"\nGenerated {len(rows)} predictions across {len(test_data)} queries")
     print(f"   Saved to: {output_path}")
 
 

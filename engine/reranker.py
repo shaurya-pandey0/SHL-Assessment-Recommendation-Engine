@@ -1,11 +1,12 @@
 """
 Re-ranker and test-type balancer for SHL recommendations.
 
-After vector search returns top-20 candidates, this module:
+After vector search returns candidates, this module:
 1. Applies hard filters (duration constraint)
-2. Boosts scores for matching test types (+0.15 per matching type)
-3. Balances technical (K/S) and behavioral (P/C/B) assessments
-   when the query requires both
+2. Boosts scores for matching test types (+0.20 per matching type)
+3. Boosts scores for keyword matches in assessment name/description
+4. Balances technical (K/S) and behavioral (P/C/B) assessments
+   when the query requires both — guarantees minimum 2 from minority group
 """
 
 import logging
@@ -17,6 +18,13 @@ logger = logging.getLogger(__name__)
 TECHNICAL_TYPES = {"Knowledge & Skills", "Simulations"}
 BEHAVIORAL_TYPES = {"Personality & Behavior", "Competencies", "Biodata & Situational Judgement"}
 
+# Generic terms that match too many assessments — exclude from keyword boost
+GENERIC_SKILLS = {
+    "engineering", "development", "software", "technology", "technical",
+    "testing", "it", "systems", "data", "management", "infrastructure",
+    "programming", "coding", "cloud", "security", "analytics",
+}
+
 
 def rerank(
     candidates: list[dict],
@@ -27,7 +35,7 @@ def rerank(
     Re-rank candidates based on parsed query constraints.
 
     Args:
-        candidates: Top-20 from vector search, each with 'score' field.
+        candidates: Candidates from vector + keyword search, each with 'score' field.
         parsed_query: Output from query_parser.parse_query().
         top_k: Number of results to return.
 
@@ -48,11 +56,27 @@ def rerank(
     # STEP 2: Boost matching test_types
     needed_types = set(parsed_query.get("test_types_needed", []))
     for c in filtered:
-        c = c  # in-place modification
         candidate_types = set(c.get("test_type", []))
         type_overlap = candidate_types & needed_types
         if type_overlap:
-            c["score"] = c.get("score", 0) + 0.15 * len(type_overlap)
+            c["score"] = c.get("score", 0) + 0.20 * len(type_overlap)
+
+    # STEP 2.5: Keyword matching boost — only use SPECIFIC skills (not generic ones)
+    skills = (
+        parsed_query.get("skills_technical", [])
+        + parsed_query.get("skills_behavioral", [])
+    )
+    # Filter out generic terms that would match too many assessments
+    specific_skills = [s for s in skills if s.lower() not in GENERIC_SKILLS]
+    if specific_skills:
+        for c in filtered:
+            text = (c.get("name", "") + " " + c.get("description", "")).lower()
+            keyword_hits = sum(1 for s in specific_skills if s.lower() in text)
+            name_lower = c.get("name", "").lower()
+            name_hits = sum(1 for s in specific_skills if s.lower() in name_lower)
+            if keyword_hits > 0:
+                # Strong boost: name matches are the strongest signal
+                c["score"] = c.get("score", 0) + 0.20 * keyword_hits + 0.15 * name_hits
 
     # STEP 3: Balance if needed
     if parsed_query.get("requires_balance", False):
@@ -67,7 +91,9 @@ def balance_test_types(candidates: list[dict], top_k: int) -> list[dict]:
     """
     Ensure a mix of technical (K/S) and behavioral (P/C/B) assessments.
 
-    Interleaves roughly 50/50, biasing toward the larger group.
+    Guarantees minimum 2 slots for the minority group, rest goes to
+    the majority group by score. This prevents over-allocation to the
+    minority when the query is predominantly one type.
     """
     technical = []
     behavioral = []
@@ -93,9 +119,16 @@ def balance_test_types(candidates: list[dict], top_k: int) -> list[dict]:
     if not technical:
         return (behavioral + other)[:top_k]
 
-    # Interleave: roughly half and half
-    tech_count = min(len(technical), top_k // 2 + (1 if len(technical) > len(behavioral) else 0))
-    behav_count = min(len(behavioral), top_k - tech_count)
+    # Guarantee minimum 2 from minority group, rest from majority by score
+    MIN_MINORITY = 2
+    if len(technical) >= len(behavioral):
+        # Technical is majority
+        behav_count = min(len(behavioral), max(MIN_MINORITY, top_k // 4))
+        tech_count = min(len(technical), top_k - behav_count)
+    else:
+        # Behavioral is majority
+        tech_count = min(len(technical), max(MIN_MINORITY, top_k // 4))
+        behav_count = min(len(behavioral), top_k - tech_count)
 
     result = technical[:tech_count] + behavioral[:behav_count]
 

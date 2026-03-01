@@ -60,6 +60,47 @@ def vector_search(query: str, top_k: int = 20) -> list[dict]:
     return results
 
 
+def keyword_search(skills: list[str], top_k: int = 20) -> list[dict]:
+    """
+    Search for assessments whose name or description contains exact skill keywords.
+
+    Complements vector search by catching exact matches that embeddings may dilute.
+    Scores are based on keyword hit count (normalized to 0-1 range).
+
+    Args:
+        skills: List of skill keywords to match (e.g., ["python", "sql", "excel"]).
+        top_k: Number of results to return.
+
+    Returns:
+        List of assessment dicts with 'score' field based on keyword relevance.
+    """
+    _ensure_loaded()
+
+    if not skills:
+        return []
+
+    scored = []
+    for assessment in _catalogue:
+        name_lower = assessment.get("name", "").lower()
+        desc_lower = assessment.get("description", "").lower()
+        text = name_lower + " " + desc_lower
+
+        # Count how many skills appear in the assessment text
+        hits = sum(1 for s in skills if s.lower() in text)
+        # Bonus for name match (stronger signal than description match)
+        name_hits = sum(1 for s in skills if s.lower() in name_lower)
+
+        if hits > 0:
+            # Score: normalize by number of skills, boost name matches
+            score = (hits + name_hits) / (len(skills) * 2)
+            entry = assessment.copy()
+            entry["score"] = score
+            scored.append(entry)
+
+    scored.sort(key=lambda x: x["score"], reverse=True)
+    return scored[:top_k]
+
+
 def reload():
     """Force reload of catalogue and embeddings."""
     global _catalogue, _embeddings

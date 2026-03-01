@@ -231,3 +231,5 @@ Thumbs.db
 
 # Environment variables (API keys)
 .env
+*.gguf
+Gen_AI Dataset.xlsx

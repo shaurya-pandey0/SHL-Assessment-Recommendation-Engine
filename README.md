@@ -15,7 +15,7 @@
 
 ## Problem Statement
 
-This system recommends relevant SHL assessments given a natural language query or job description URL. It combines semantic retrieval using Sentence-BERT embeddings, structured constraint extraction (via Google Gemini with a rule-based fallback), and test-type-aware re-ranking to return up to 10 catalogue-grounded recommendations. The system scrapes 389 individual test solutions from the SHL product catalogue and serves results through a FastAPI backend with a Streamlit frontend.
+This system recommends relevant SHL assessments given a natural language query or job description URL. It uses a **hybrid retrieval pipeline**: semantic vector search (nomic-embed-text-v1.5, 768-dim) combined with keyword-based catalogue matching, structured constraint extraction (via Google Gemini with a rule-based fallback), and test-type-aware re-ranking. The system scrapes 389 individual test solutions from the SHL product catalogue and serves results through a FastAPI backend with a Streamlit frontend.
 
 ---
 
@@ -38,21 +38,22 @@ User Query (text or URL)
          │
          ▼
 ┌─────────────────────┐
-│  Sentence-BERT       │  ← Embed query into 384-dim vector
-│  (all-MiniLM-L6-v2) │     Same model used for catalogue embeddings
+│  nomic-embed-text    │  ← Embed query into 768-dim vector
+│  v1.5 (GGUF Q8_0)   │     Same model used for catalogue embeddings
 └────────┬────────────┘
          │
          ▼
 ┌─────────────────────┐
-│  Cosine Similarity   │  ← Dot product on L2-normalized vectors
-│  Vector Search       │     Return top 20 candidates
+│  Hybrid Search       │  ← Vector search (top 50 candidates)
+│  Vector + Keyword    │     + Keyword catalogue scan for exact matches
+│  + Role-focused      │     + Role-focused vector search
 └────────┬────────────┘
          │
          ▼
 ┌─────────────────────┐
 │  Re-ranker           │  ← Duration filter (hard constraint)
-│  + Type Balancer     │     Test type boost (+0.15 per match)
-│                      │     Technical/behavioral interleaving
+│  + Type Balancer     │     Type boost + keyword boost
+│                      │     Smart balance (min 2 minority)
 └────────┬────────────┘
          │
          ▼
@@ -66,13 +67,17 @@ User Query (text or URL)
 
 ## Design Decisions
 
-### Why Sentence-BERT (`all-MiniLM-L6-v2`)
+### Why nomic-embed-text-v1.5
 
-Runs locally on CPU with no API dependency. The model produces 384-dimensional embeddings and is optimized for semantic similarity tasks. At ~80MB, it has negligible overhead for deployment. No API key, no rate limits, no cost.
+Runs locally on CPU via llama-cpp-python (GGUF Q8_0 quantized). Produces 768-dimensional embeddings — richer representations than the initial MiniLM (384-dim), yielding better semantic matching. At ~140MB, it's efficient for deployment. No API key, no rate limits, no cost. The model uses task-specific prefixes (`search_document:` for catalogue, `search_query:` for queries) which improves retrieval accuracy.
+
+### Why hybrid search (vector + keyword)
+
+Pure vector search often misses exact skill name matches. For example, a query mentioning "Python" might not rank "Python (New)" in the top 10 because the embedding dilutes the keyword signal. The keyword search scans the full catalogue for exact matches and merges them into the candidate pool, catching what embeddings miss.
 
 ### Why cosine similarity via dot product
 
-All embeddings are L2-normalized at creation time. This makes cosine similarity equivalent to a simple dot product — a single `np.dot()` call computes similarity against the entire catalogue in under 1ms. Vector search complexity is O(N·d) where N=389 and d=384, which is negligible at current catalogue size.
+All embeddings are L2-normalized at creation time. This makes cosine similarity equivalent to a simple dot product — a single `np.dot()` call computes similarity against the entire catalogue in under 1ms. Vector search complexity is O(N·d) where N=389 and d=768, which is negligible at current catalogue size.
 
 ### Why no FAISS or vector database
 
@@ -148,10 +153,14 @@ Evaluation uses **Recall@10**: what fraction of the known relevant assessments a
 
 ### Metrics
 
-| Metric | Score |
-|--------|-------|
-| Mean Recall@10 | ~0.72 |
-| MAP@10 | ~0.63 |
+| Metric | Baseline | Final |
+|--------|----------|-------|
+| Mean Recall@10 | 0.19 | **0.31** |
+| MAP@10 | 0.11 | **0.19** |
+
+**63% improvement** in Recall@10 through: switching to nomic-embed-text-v1.5, adding hybrid keyword search, smarter reranking with generic term filtering, and enhanced query parsing (C-suite detection, duration handling).
+
+> **Note on recall ceiling**: 11 of 65 ground-truth URLs (17%) reference pre-packaged job solutions not present in the Individual Test Solutions catalogue. This places a hard upper bound on recall at approximately 0.83.
 
 Average end-to-end latency (excluding cold start): ~150–300ms per request.
 
@@ -186,10 +195,9 @@ python -m eval.generate_predictions
 
 ### Potential Improvements
 
-- **Cross-encoder reranking**: Use a cross-encoder model (e.g., `ms-marco-MiniLM`) as a second-stage reranker for more precise relevance scoring
-- **Query expansion**: Use the LLM to generate 2-3 paraphrased queries and merge results for better recall
-- **Learned boost weights**: Use the training data to tune the test-type boost coefficient (currently fixed at 0.15) via grid search
-- **Click feedback loop**: In production, log user selections and use them to fine-tune embeddings or boost frequently-selected assessments
+- **Cross-encoder reranking**: A cross-encoder model (e.g., `ms-marco-MiniLM`) as a second-stage reranker for more precise relevance scoring
+- **Query expansion**: Use the LLM to generate 2-3 paraphrased queries and merge result sets for better recall on ambiguous queries
+- **Learned boost weights**: Use training data to tune type boost, keyword boost, and balance ratios via grid search
 - **Catalogue freshness**: SHL may update their catalogue. A scheduled re-scrape pipeline would keep embeddings current
 
 ---
@@ -198,9 +206,9 @@ python -m eval.generate_predictions
 
 | Component | Technology |
 |-----------|-----------|
-| Embeddings | Sentence-Transformers (`all-MiniLM-L6-v2`) |
-| Query parsing | Google Gemini 1.5 Flash + rule-based fallback |
-| Vector search | NumPy (cosine similarity via dot product) |
+| Embeddings | nomic-embed-text-v1.5 (GGUF Q8_0, 768-dim) via llama-cpp-python |
+| Query parsing | Google Gemini 2.0 Flash + rule-based fallback |
+| Search | Hybrid: vector search (NumPy dot product) + keyword catalogue scan |
 | API | FastAPI + Uvicorn |
 | Frontend | Streamlit |
 | Scraping | Selenium + BeautifulSoup |
@@ -215,8 +223,8 @@ python -m eval.generate_predictions
 │   ├── scrape_catalogue.py       # Selenium-based SHL catalogue scraper
 │   └── catalogue.json            # 389 scraped assessments
 ├── engine/
-│   ├── embeddings.py             # Sentence-BERT encoding + persistence
-│   ├── search.py                 # Cosine similarity vector search
+│   ├── embeddings.py             # nomic-embed-text-v1.5 encoding + persistence
+│   ├── search.py                 # Hybrid vector + keyword search
 │   ├── query_parser.py           # Gemini + rule-based query parsing
 │   ├── reranker.py               # Filter, boost, balance test types
 │   └── recommender.py            # Full pipeline orchestration
@@ -246,7 +254,7 @@ pip install -r requirements.txt
 python -m engine.embeddings
 
 # Start API
-uvicorn api.main:app --port 8000
+python -m uvicorn api.main:app --port 8000
 
 # Start frontend (separate terminal)
 streamlit run frontend/app.py

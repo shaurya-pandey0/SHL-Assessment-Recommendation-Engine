@@ -28,24 +28,26 @@ The implemented system exposes a REST API (`POST /recommend`, `GET /health`), in
 
 ## 3. Embedding Strategy
 
-**Model**: `all-MiniLM-L6-v2` from Sentence-Transformers — a 22M parameter model producing 384-dimensional embeddings, optimized for semantic similarity. Runs on CPU with no external API dependency.
+**Model**: `nomic-embed-text-v1.5` (GGUF Q8_0 quantized) — a 137M parameter model producing 768-dimensional embeddings, run locally via llama-cpp-python. This model was chosen over the initial `all-MiniLM-L6-v2` (384-dim) because it produces richer, higher-quality representations for retrieval tasks while still running efficiently on CPU.
 
 **Embedding text construction**: For each assessment:
 
 ```
-"{name}. Test type: {', '.join(test_type)}. {description}"
+"search_document: {name}. Test type: {types}. {description}. Keywords: {domain_hints}"
 ```
 
-Including `test_type` in the embedding text is deliberate. Without it, the model would only match on topic similarity (e.g., "Java" → Java tests). With it, the vector space also separates knowledge tests from personality assessments from simulations, enabling type-aware retrieval.
+The `search_document:` prefix is required by nomic-embed to distinguish document embeddings from query embeddings (which use `search_query:` prefix). Including `test_type` in the text is deliberate — it separates knowledge tests from personality assessments in vector space, enabling type-aware retrieval.
 
-**Normalization**: All embeddings are L2-normalized at encode time. This converts cosine similarity to a simple dot product operation, enabling a single `np.dot(embeddings, query_vec)` call to compute all 389 similarities in ~0.1ms.
+**Domain enrichment**: Each test type appends short keyword hints (e.g., "Ability & Aptitude" adds "cognitive reasoning analytical aptitude intelligence") to nudge embeddings toward the right semantic cluster.
+
+**Normalization**: All embeddings are L2-normalized at encode time, converting cosine similarity to a dot product for fast retrieval.
 
 ---
 
 ## 4. Query Understanding
 
-**Primary**: Google Gemini 1.5 Flash parses the query into structured JSON:
-- `job_role`: identified role
+**Primary**: Google Gemini 2.0 Flash parses the query into structured JSON:
+- `job_role`: identified role (including C-suite titles: COO, CEO, CTO)
 - `skills_technical`: technical skill keywords
 - `skills_behavioral`: soft/behavioral skills
 - `max_duration`: time constraint in minutes
@@ -54,31 +56,75 @@ Including `test_type` in the embedding text is deliberate. Without it, the model
 
 **Fallback**: If Gemini is unavailable (no API key, rate limit, network failure), a rule-based parser using regex patterns and keyword dictionaries extracts the same fields deterministically. The system never fails due to LLM unavailability.
 
-**Balance detection** is the key insight: when a query mentions both technical skills (e.g., "Java") and behavioral skills (e.g., "collaboration"), the system activates balanced interleaving to ensure the output contains both Knowledge & Skills and Personality & Behavior assessments.
+**Key enhancements to the parser** (implemented during optimization):
+- Executive title detection (COO, CEO, CTO, VP, Director) auto-adds "leadership" as a behavioral skill and "Personality & Behavior" as a needed test type
+- Duration parsing handles natural phrasing: "about an hour" → 60 min, "1-2 hours" → 60 min
+- Cultural fit terms ("right fit", "culture", "organizational fit") trigger personality assessment detection
 
 ---
 
-## 5. Re-ranking Logic
+## 5. Hybrid Retrieval Pipeline
 
-After vector search returns the top 20 candidates, the re-ranker applies three stages:
+The system uses a **three-stage hybrid retrieval** approach — not just vector search alone:
 
+### Stage 1: Vector Search (semantic)
+- For short queries (<80 words): single vector search, top 50 candidates
+- For long JDs (>80 words): dual search (compressed query + original text), merged by max score
+- Additionally, a **role-focused search** using just the job role + skills as a focused query, surfacing role-specific assessments that get diluted in full JD embeddings
+
+### Stage 2: Keyword Search (exact matching)
+- Scans the full 389-assessment catalogue for exact skill keyword matches in names and descriptions
+- Uses specific technology/domain terms extracted from the query (e.g., "java", "sql", "marketing", "leadership")
+- Generic terms ("engineering", "development", "software") are filtered out to prevent noisy matches
+- Results are merged into the candidate pool, adding assessments that vector search missed entirely
+
+### Stage 3: Re-ranking and Balancing
 1. **Hard filter**: Remove candidates exceeding `max_duration`. Assessments with unknown duration are kept.
-
-2. **Type boost**: Add +0.15 to similarity score for each matching test type between the candidate and `test_types_needed`. This raises relevant-type assessments above topically-similar but wrong-type results.
-
-3. **Balance interleaving**: When `requires_balance` is active, candidates are split into technical (Knowledge & Skills, Simulations) and behavioral (Personality & Behavior, Competencies, Biodata & Situational Judgement) groups. The output interleaves roughly 50/50 from each group by score, preventing vector search's natural bias toward the dominant topic.
+2. **Type boost**: +0.20 to score for each matching test type between candidate and `test_types_needed`.
+3. **Keyword boost**: +0.20 per specific skill keyword found in candidate text, +0.15 extra for name matches. Generic terms excluded to prevent noise.
+4. **Smart balance**: When both technical and behavioral skills detected, guarantees minimum 2 slots for the minority group (not a rigid 50/50 split). This prevents over-allocating to behavioral slots when the query is predominantly technical.
 
 ---
 
-## 6. Evaluation
+## 6. Optimization Journey
 
-**Metric**: Recall@10 — fraction of known relevant assessments appearing in the system's top 10 recommendations.
+### Initial baseline (MiniLM embeddings + basic pipeline)
+| Metric | Score |
+|--------|-------|
+| Mean Recall@10 | 0.19 |
+| MAP@10 | 0.11 |
 
-**Method**: For each training query, run the full pipeline and compare returned URLs against labelled relevant URLs. URL normalization handles path variations between scraper output and ground truth.
+### Key observations from error analysis
+- **Theoretical max recall is 0.83**: 11 of 65 ground-truth URLs point to pre-packaged job solutions not in the 389 Individual Test Solutions catalogue
+- **Many relevant assessments ranked 20-100+** in vector search — too low to make the top-10 cutoff
+- **Exact skill matches missed**: "Python" in query should find "Python (New)" assessment, but embedding similarity alone diluted this
+- **Parser blind spots**: "COO" not recognized as a job role, "about an hour" not parsed as a duration, "cultural fit" not detected as a behavioral indicator
 
-**Additional metric**: MAP@10 (Mean Average Precision at 10) to measure ranking quality, not just presence.
+### Improvement 1: Switch to nomic-embed-text-v1.5 (768-dim)
+Richer embeddings improved semantic matching. Recall went from 0.19 → 0.20.
 
-Run: `python -m eval.evaluate --verbose`
+### Improvement 2: Hybrid retrieval (keyword search + wider candidate pool)
+Added keyword-based catalogue search for exact skill name matches. Widened vector search from top-20 to top-50 candidates. This brought assessments like "JavaScript (New)", "SQL Server (New)" into the candidate pool.
+
+### Improvement 3: Smarter reranking
+- Filtered out generic terms ("engineering", "software") from keyword matching to reduce noise
+- Increased type boost to 0.20 and keyword boost to 0.20/0.15
+- Changed balance from rigid 50/50 to guarantee-minimum-2 for minority group
+Recall improved to 0.26.
+
+### Improvement 4: Enhanced query parser
+- Added C-suite title detection (COO → leadership/personality)
+- Fixed "about an hour" duration parsing
+- Added cultural fit terms to behavioral keyword set
+This brought Q3 (COO cultural fit) from 0.0 → 0.50 recall.
+
+### Final results
+| Metric | Score |
+|--------|-------|
+| Mean Recall@10 | 0.31 |
+| MAP@10 | 0.19 |
+
+**63% improvement** in Recall@10 over the baseline.
 
 ---
 
@@ -88,8 +134,6 @@ Run: `python -m eval.evaluate --verbose`
 
 - **Query expansion**: Generate 2-3 paraphrased queries via LLM and merge result sets, improving recall for ambiguous or short queries.
 
-- **Learned weights**: Use the training data to optimize the type boost coefficient (currently 0.15) and balance ratio through grid search or Bayesian optimization.
+- **Learned weights**: Use the training data to optimize the type boost coefficient and balance ratio through grid search or Bayesian optimization.
 
 - **Catalogue refresh pipeline**: Scheduled re-scraping to capture new assessments SHL adds to their catalogue, with delta-embedding updates.
-
-- **FAISS index**: If the catalogue grows beyond ~10K assessments, replace NumPy dot product with a FAISS IVF index for sub-linear search time.

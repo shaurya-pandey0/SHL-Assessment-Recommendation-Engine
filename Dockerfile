@@ -2,23 +2,25 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# Install system deps
+# Install system deps for llama-cpp-python (C++ compiler needed)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    cmake \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python deps
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Pre-download the embedding model at build time (faster cold starts)
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
-
 # Copy application code
 COPY . .
 
-# Pre-compute embeddings at build time
-RUN python -c "from engine.embeddings import build_and_save; build_and_save()"
+# Build embeddings at build time if model is present (faster cold starts)
+# If model not present, embeddings will be built on first request
+RUN python -c "from pathlib import Path; \
+    models = list(Path('.').glob('nomic-embed-text-v1.5*.gguf')); \
+    print(f'Found {len(models)} model(s): {models}'); \
+    exec('from engine.embeddings import build_and_save; build_and_save()') if models else print('No model found, skipping pre-build')"
 
 EXPOSE 8080
 

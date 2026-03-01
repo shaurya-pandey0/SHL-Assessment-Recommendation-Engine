@@ -138,7 +138,7 @@ st.markdown("---")
 st.markdown(
     "<div style='text-align: center; color: #888; font-size: 0.85em;'>"
     "SHL Assessment Recommendation Engine | "
-    "Built with Sentence-BERT + Google Gemini + FastAPI"
+    "Built with nomic-embed-text-v1.5 + Google Gemini + FastAPI"
     "</div>",
     unsafe_allow_html=True,
 )
