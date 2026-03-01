@@ -4,12 +4,10 @@
 
 | Resource | URL |
 |----------|-----|
-| **API Endpoint** | `https://shl-recommender-xyz.onrender.com` |
-| **API Docs (Swagger)** | `https://shl-recommender-xyz.onrender.com/docs` |
-| **Frontend** | `https://shl-assessment-recommender.streamlit.app` |
+| **API Endpoint** | `http://34.59.156.213:8000` |
+| **API Docs (Swagger)** | `http://34.59.156.213:8000/docs` |
+| **Frontend** | `http://34.59.156.213:8501` |
 | **GitHub** | [github.com/shaurya-pandey0/SHL-Assessment-Recommendation-Engine](https://github.com/shaurya-pandey0/SHL-Assessment-Recommendation-Engine) |
-
-> **Note**: Replace the placeholder URLs above with actual deployed endpoints after deployment.
 
 ---
 
