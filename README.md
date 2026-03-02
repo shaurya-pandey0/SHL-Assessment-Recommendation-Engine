@@ -4,9 +4,9 @@
 
 | Resource | URL |
 |----------|-----|
-| **API Endpoint** | `http://34.59.156.213:8000` |
-| **API Docs (Swagger)** | `http://34.59.156.213:8000/docs` |
-| **Frontend** | `http://35.192.74.81:8501/` |
+| **API Endpoint** | `http://34.29.43.125:8000` |
+| **API Docs (Swagger)** | `http://34.29.43.125:8000/docs` |
+| **Frontend** | `http://34.29.43.125:8501/` |
 | **GitHub** | [github.com/shaurya-pandey0/SHL-Assessment-Recommendation-Engine](https://github.com/shaurya-pandey0/SHL-Assessment-Recommendation-Engine) |
 
 ---
