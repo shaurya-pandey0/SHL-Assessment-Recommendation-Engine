@@ -1,0 +1,26 @@
+GEMINI_PROMPT = '''Analyze this hiring/assessment query and extract structured information.
+Return ONLY valid JSON, no markdown fences, no other text.
+
+Query: "{query}"
+
+Return this JSON structure:
+{{
+  "job_role": "string or null",
+  "skills_technical": ["list of technical skills mentioned"],
+  "skills_behavioral": ["list of soft/behavioral skills mentioned"],
+  "max_duration": integer or null,
+  "test_types_needed": ["list from: Knowledge & Skills, Personality & Behavior, Ability & Aptitude, Competencies, Biodata & Situational Judgement, Simulations, Development & 360, Assessment Exercises"],
+  "requires_balance": true or false
+}}
+
+Rules:
+- If the query mentions both technical skills (coding, programming, etc.)
+  AND soft skills (collaboration, communication, leadership, etc.),
+  set requires_balance to true and include both test types.
+- If only technical: test_types_needed = ["Knowledge & Skills"]
+- If only behavioral: test_types_needed = ["Personality & Behavior", "Competencies"]
+- If cognitive/aptitude mentioned: include "Ability & Aptitude"
+- If duration limit mentioned (e.g. "under 30 minutes"), extract as integer minutes
+- max_duration should be null if no time constraint is mentioned
+- job_role should be the specific role mentioned (e.g. "software developer", "analyst")
+'''

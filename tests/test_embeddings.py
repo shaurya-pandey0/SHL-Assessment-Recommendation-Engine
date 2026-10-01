@@ -71,7 +71,7 @@ class TestEmbeddings:
 
     def test_shape(self, sample_assessments):
         emb = create_embeddings(sample_assessments, show_progress=False)
-        assert emb.shape == (3, 384)
+        assert emb.shape == (3, 768)
         assert emb.dtype == np.float32
 
     def test_normalized(self, sample_assessments):
@@ -101,7 +101,7 @@ class TestEmbeddings:
 class TestEmbedQuery:
     def test_shape(self):
         emb = embed_query("Python developer assessment")
-        assert emb.shape == (384,)
+        assert emb.shape == (768,)
 
     def test_normalized(self):
         emb = embed_query("test query")

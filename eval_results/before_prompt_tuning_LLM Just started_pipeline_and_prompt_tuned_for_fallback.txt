@@ -1,0 +1,121 @@
+C:\Users\PC\Desktop\Project\SHL Assignment>python -m eval.evaluate --verbose
+2026-09-30 20:45:31,637 [INFO] Initialized LLM (groq : qwen/qwen3.8-27b)
+2026-09-30 20:45:32,065 [INFO] HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-30 20:45:32,085 [INFO] Parsed query: {'job_role': 'Java developer', 'skills_technical': ['Java'], 'skills_behavioral': ['collaboration'], 'max_duration': 40, 'test_types_needed': ['Knowledge & Skills', 'Personality & Behavior', 'Competencies'], 'requires_balance': True}
+2026-09-30 20:45:32,088 [INFO] Loaded 389 assessments with embeddings shape (389, 768)
+2026-09-30 20:45:32,088 [INFO] Search engine loaded: 389 assessments
+2026-09-30 20:45:36,568 [INFO] Keyword search added 3 new candidates from 12 keyword matches
+
+  Query 1: 'I am hiring for Java developers who can also collaborate effectively with my bus...'
+  Recall@10: 0.600 | AP@10: 0.192
+  Relevant: 5 | Hits: 3
+  Missed URLs: ['https://www.shl.com/products/product-catalog/view/interpersonal-communications', 'https://www.shl.com/products/product-catalog/view/automata-fix-new']
+2026-09-30 20:45:36,904 [INFO] HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-30 20:45:36,905 [INFO] Parsed query: {'job_role': 'sales', 'skills_technical': [], 'skills_behavioral': [], 'max_duration': 60, 'test_types_needed': ['Personality & Behavior', 'Competencies'], 'requires_balance': False}
+2026-09-30 20:45:41,106 [INFO] Keyword search added 3 new candidates from 17 keyword matches
+
+  Query 2: 'I want to hire new graduates for a sales role in my company, the budget is for a...'
+  Recall@10: 0.111 | AP@10: 0.037
+  Relevant: 9 | Hits: 1
+  Missed URLs: ['https://www.shl.com/products/product-catalog/view/svar-spoken-english-indian-accent-new', 'https://www.shl.com/products/product-catalog/view/business-communication-adaptive', 'https://www.shl.com/products/product-catalog/view/entry-level-sales-7-1']
+2026-09-30 20:45:41,373 [INFO] HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-30 20:45:41,374 [INFO] Parsed query: {'job_role': 'COO', 'skills_technical': [], 'skills_behavioral': ['cultural fit'], 'max_duration': 60, 'test_types_needed': ['Personality & Behavior', 'Competencies'], 'requires_balance': False}
+
+  Query 3: 'I am looking for a COO for my company in China and I want to see if they are cul...'
+  Recall@10: 0.000 | AP@10: 0.000
+  Relevant: 6 | Hits: 0
+  Missed URLs: ['https://www.shl.com/products/product-catalog/view/enterprise-leadership-report-2-0', 'https://www.shl.com/products/product-catalog/view/enterprise-leadership-report', 'https://www.shl.com/products/product-catalog/view/opq-leadership-report']
+2026-09-30 20:45:46,148 [INFO] HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-30 20:45:46,149 [INFO] Parsed query: {'job_role': 'Station Manager', 'skills_technical': ['Sound-scape management', 'Creative and marketing interventions', 'Programming initiatives', 'On-ground events management', 'Digital content conceptualisation', 'Branding', 'English language proficiency'], 'skills_behavioral': ['Communication skills', 'Interpersonal skills', 'People management', 'Networking', 'Coaching and mentoring', 'Talent identification'], 'max_duration': 90, 'test_types_needed': ['Knowledge & Skills', 'Personality & Behavior', 'Competencies'], 'requires_balance': True}
+2026-09-30 20:45:46,153 [INFO] Compressed query (257 words → 47 words): Station Manager Branding Creative and marketing interventions Digital content conceptualisation English language profici...
+2026-09-30 20:45:50,621 [INFO] Dual search: 50 + 50 → 50 merged
+2026-09-30 20:45:52,804 [INFO] Keyword search added 14 new candidates from 27 keyword matches
+
+  Query 4: 'KEY RESPONSIBITILES:
+
+Manage the sound-scape of the station through appropriate ...'
+  Recall@10: 0.000 | AP@10: 0.000
+  Relevant: 5 | Hits: 0
+  Missed URLs: ['https://www.shl.com/products/product-catalog/view/shl-verify-interactive-inductive-reasoning', 'https://www.shl.com/products/product-catalog/view/english-comprehension-new', 'https://www.shl.com/products/product-catalog/view/interpersonal-communications']
+2026-09-30 20:45:53,120 [INFO] HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-30 20:45:53,121 [INFO] Parsed query: {'job_role': 'Content Writer', 'skills_technical': ['English', 'SEO'], 'skills_behavioral': [], 'max_duration': None, 'test_types_needed': ['Knowledge & Skills'], 'requires_balance': False}
+2026-09-30 20:45:57,319 [INFO] Keyword search added 9 new candidates from 13 keyword matches
+
+  Query 5: 'Content Writer required, expert in English and SEO....'
+  Recall@10: 0.600 | AP@10: 0.600
+  Relevant: 5 | Hits: 3
+  Missed URLs: ['https://www.shl.com/products/product-catalog/view/occupational-personality-questionnaire-opq32r', 'https://www.shl.com/products/product-catalog/view/drupal-new']
+2026-09-30 20:45:58,542 [INFO] HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-30 20:45:58,543 [INFO] Parsed query: {'job_role': 'QA Engineer', 'skills_technical': ['Java', 'JavaScript', 'CSS', 'HTML', 'Selenium WebDriver', 'page object design pattern', 'SQL server', 'Test case management', 'Manual Testing', 'Automation'], 'skills_behavioral': ['collaboration', 'communication', 'solution-finding'], 'max_duration': 60, 'test_types_needed': ['Knowledge & Skills', 'Personality & Behavior', 'Competencies'], 'requires_balance': True}
+2026-09-30 20:45:58,549 [INFO] Compressed query (472 words → 41 words): QA Engineer Automation CSS HTML Java JavaScript Manual Testing SQL server Selenium WebDriver Test case management css ht...
+2026-09-30 20:46:03,067 [INFO] Dual search: 50 + 50 → 50 merged
+2026-09-30 20:46:05,210 [INFO] Keyword search added 14 new candidates from 30 keyword matches
+
+  Query 6: 'Find me 1 hour long assesment for the below job at SHL
+Job Description
+
+ Join a ...'
+  Recall@10: 0.333 | AP@10: 0.270
+  Relevant: 9 | Hits: 3
+  Missed URLs: ['https://www.shl.com/products/product-catalog/view/automata-selenium', 'https://www.shl.com/products/product-catalog/view/automata-sql-new', 'https://www.shl.com/products/product-catalog/view/professional-7-1-solution']
+2026-09-30 20:46:05,502 [INFO] HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-30 20:46:05,505 [INFO] Parsed query: {'job_role': 'Assistant Admin', 'skills_technical': [], 'skills_behavioral': [], 'max_duration': 40, 'test_types_needed': ['Knowledge & Skills', 'Personality & Behavior', 'Competencies'], 'requires_balance': False}
+
+  Query 7: 'ICICI Bank Assistant Admin, Experience required 0-2 years, test should be 30-40 ...'
+  Recall@10: 0.333 | AP@10: 0.204
+  Relevant: 6 | Hits: 2
+  Missed URLs: ['https://www.shl.com/products/product-catalog/view/basic-computer-literacy-windows-10-new', 'https://www.shl.com/products/product-catalog/view/general-entry-level-data-entry-7-0-solution', 'https://www.shl.com/products/product-catalog/view/financial-professional-short-form']
+2026-09-30 20:46:10,571 [INFO] HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-30 20:46:10,572 [INFO] Parsed query: {'job_role': 'Marketing Manager', 'skills_technical': ['B2B marketing', 'Community building', 'Events management', 'Brand positioning', 'Demand generation', 'Social media engagement', 'Market intelligence', 'Marketing funnel optimization', 'Budget management', 'Content strategy', 'Influencer partnerships', 'Sponsorship management'], 'skills_behavioral': ['Strategic thinking', 'Execution-focused leadership', 'Team building', 'Storytelling', 'Brand communication', 'Collaboration', 'Relationship building', 'Flexibility'], 'max_duration': None, 'test_types_needed': ['Knowledge & Skills', 'Personality & Behavior', 'Competencies'], 'requires_balance': True}
+2026-09-30 20:46:10,577 [INFO] Compressed query (372 words → 56 words): Marketing Manager B2B marketing Brand positioning Budget management Community building Content strategy Demand generatio...
+2026-09-30 20:46:15,073 [INFO] Dual search: 50 + 50 → 50 merged
+2026-09-30 20:46:17,140 [INFO] Keyword search added 12 new candidates from 30 keyword matches
+
+  Query 8: 'We're looking for a Marketing Manager who can drive Recro’s brand positioning, c...'
+  Recall@10: 0.000 | AP@10: 0.000
+  Relevant: 5 | Hits: 0
+  Missed URLs: ['https://www.shl.com/products/product-catalog/view/shl-verify-interactive-inductive-reasoning', 'https://www.shl.com/products/product-catalog/view/microsoft-excel-365-essentials-new', 'https://www.shl.com/products/product-catalog/view/manager-8-0-jfa-4310']
+2026-09-30 20:46:17,786 [INFO] HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-30 20:46:17,787 [INFO] Parsed query: {'job_role': 'Consultant', 'skills_technical': ['talent assessment', 'job analysis', 'validation', 'leadership assessment', 'succession planning', 'program implementation', 'adverse impact analyses', 'selection system development', 'statistical analysis', 'SPSS', 'R', 'talent analytics'], 'skills_behavioral': ['Decision Making', 'Collaboration', 'Building Relationships', 'Creativity and Innovation', 'Planning and Organizing', 'Delivering Results', 'Adaptability', 'communication skills', 'presenting technical results'], 'max_duration': 90, 'test_types_needed': ['Knowledge & Skills', 'Personality & Behavior', 'Competencies'], 'requires_balance': True}
+2026-09-30 20:46:17,793 [INFO] Compressed query (498 words → 64 words): Consultant R SPSS adverse impact analyses communication job analysis leadership leadership assessment program implementa...
+2026-09-30 20:46:22,304 [INFO] Dual search: 50 + 50 → 50 merged
+2026-09-30 20:46:24,443 [INFO] Keyword search added 16 new candidates from 30 keyword matches
+
+  Query 9: 'Based on the JD below recommend me assessment for the Consultant position in my ...'
+  Recall@10: 0.000 | AP@10: 0.000
+  Relevant: 5 | Hits: 0
+  Missed URLs: ['https://www.shl.com/products/product-catalog/view/administrative-professional-short-form', 'https://www.shl.com/products/product-catalog/view/professional-7-1-solution', 'https://www.shl.com/products/product-catalog/view/verify-verbal-ability-next-generation']
+2026-09-30 20:46:24,731 [INFO] HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-30 20:46:24,732 [INFO] Parsed query: {'job_role': 'Senior Data Analyst', 'skills_technical': ['SQL', 'Excel', 'Python'], 'skills_behavioral': [], 'max_duration': 120, 'test_types_needed': ['Knowledge & Skills'], 'requires_balance': False}
+2026-09-30 20:46:28,979 [INFO] Keyword search added 1 new candidates from 15 keyword matches
+
+  Query 10: 'I want to hire a Senior Data Analyst with 5 years of experience and expertise in...'
+  Recall@10: 0.400 | AP@10: 0.250
+  Relevant: 10 | Hits: 4
+  Missed URLs: ['https://www.shl.com/products/product-catalog/view/data-warehousing-concepts', 'https://www.shl.com/products/product-catalog/view/professional-7-1-solution', 'https://www.shl.com/products/product-catalog/view/automata-sql-new']
+
+============================================================
+EVALUATION REPORT
+============================================================
+Queries evaluated:   10
+Mean Recall@10:      0.2378
+MAP@10:              0.1552
+
+Per-query breakdown:
+  #   Recall@10    AP@10      Hits   Query
+  --------------------------------------------------------------------------------
+  1   0.600        0.192      3      I am hiring for Java developers who can also colla
+  2   0.111        0.037      1      I want to hire new graduates for a sales role in m
+  3   0.000        0.000      0      I am looking for a COO for my company in China and
+  4   0.000        0.000      0      KEY RESPONSIBITILES:
+
+Manage the sound-scape of th
+  5   0.600        0.600      3      Content Writer required, expert in English and SEO
+  6   0.333        0.270      3      Find me 1 hour long assesment for the below job at
+  7   0.333        0.204      2      ICICI Bank Assistant Admin, Experience required 0-
+  8   0.000        0.000      0      We're looking for a Marketing Manager who can driv
+  9   0.000        0.000      0      Based on the JD below recommend me assessment for
+  10  0.400        0.250      4      I want to hire a Senior Data Analyst with 5 years
+============================================================
+
+C:\Users\PC\Desktop\Project\SHL Assignment>

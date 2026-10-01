@@ -56,7 +56,7 @@ def get_model():
             n_ctx=2048,  # nomic-embed supports up to 2048 tokens
         )
         logger.info("Nomic-embed model loaded successfully.")
-    return _model
+    return None
 
 
 def build_embedding_text(assessment: dict) -> str:
@@ -180,18 +180,27 @@ def load_embeddings(filepath: Path = None) -> tuple:
     return catalogue, embeddings
 
 
-def embed_query(query: str) -> np.ndarray:
-    """
-    Embed a single query string.
+import requests
 
-    Returns:
-        1D numpy array of shape (768,), L2-normalized.
-    """
-    model = get_model()
-    # Nomic-embed requires "search_query:" prefix for queries
-    embedding = model.embed("search_query: " + query)
+LM_STUDIO_URL = "http://localhost:1234/v1/embeddings"
+
+def embed_query(query: str) -> np.ndarray:
+    """Embed a single query string via LM Studio."""
+    response = requests.post(
+        LM_STUDIO_URL,
+        json={
+            "model": "text-embedding-nomic-embed-text-v1",  # name of the model loaded in LM Studio
+            "input": "search_query: " + query
+        },
+        timeout=10
+    )
+    response.raise_for_status()
+    data = response.json()
+    embedding = data["data"][0]["embedding"]
+    
     embedding = np.array(embedding, dtype=np.float32)
     return _normalize(embedding)
+
 
 
 def build_and_save(catalogue_path: Path = None, embeddings_path: Path = None) -> tuple:

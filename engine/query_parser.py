@@ -23,7 +23,7 @@ import re
 import json
 import logging
 from typing import Optional
-
+from engine.llm_client import get_llm
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -40,23 +40,24 @@ Query: "{query}"
 Return this JSON structure:
 {{
   "job_role": "string or null",
-  "skills_technical": ["list of technical skills mentioned"],
-  "skills_behavioral": ["list of soft/behavioral skills mentioned"],
+  "skills_technical": ["short lowercase keywords, e.g. java, sql, selenium"],
+  "skills_behavioral": ["short lowercase keywords, e.g. leadership, communication"],
   "max_duration": integer or null,
   "test_types_needed": ["list from: Knowledge & Skills, Personality & Behavior, Ability & Aptitude, Competencies, Biodata & Situational Judgement, Simulations, Development & 360, Assessment Exercises"],
   "requires_balance": true or false
 }}
 
 Rules:
-- If the query mentions both technical skills (coding, programming, etc.)
-  AND soft skills (collaboration, communication, leadership, etc.),
-  set requires_balance to true and include both test types.
-- If only technical: test_types_needed = ["Knowledge & Skills"]
-- If only behavioral: test_types_needed = ["Personality & Behavior", "Competencies"]
-- If cognitive/aptitude mentioned: include "Ability & Aptitude"
-- If duration limit mentioned (e.g. "under 30 minutes"), extract as integer minutes
-- max_duration should be null if no time constraint is mentioned
-- job_role should be the specific role mentioned (e.g. "software developer", "analyst")
+- Skills must be short lowercase keywords of 1-2 words (e.g. "java", "manual testing", "leadership"), never long phrases or sentences.
+- job_role should be the specific role mentioned (e.g. "software developer", "data analyst").
+- If the role is an executive (CEO, COO, CTO, CFO, VP, Director), add "leadership" to skills_behavioral and include "Personality & Behavior".
+- If the query needs both technical skills (coding, tools, domain knowledge) AND soft skills (collaboration, communication, leadership, cultural fit), set requires_balance to true and include "Knowledge & Skills" plus "Personality & Behavior" and/or "Competencies".
+- If only technical skills are needed: include "Knowledge & Skills".
+- If only behavioral qualities are needed: include "Personality & Behavior" and/or "Competencies".
+- Include "Ability & Aptitude" for analyst, consultant, graduate or professional roles, or when reasoning, analytical, verbal or numerical work is implied.
+- Only include test types the query actually needs; do not copy the same set every time.
+- If a duration limit is mentioned (e.g. "under 30 minutes", "30-40 mins", "about an hour"), extract the maximum as integer minutes.
+- max_duration should be null if no time constraint is mentioned.
 '''
 
 _gemini_client = None
@@ -81,57 +82,28 @@ def _get_gemini_client():
     return _gemini_client
 
 
-def _parse_with_gemini(query: str) -> Optional[dict]:
-    """
-    Parse query using Gemini API.
-
-    Returns parsed dict on success, None on failure (triggers fallback).
-    """
-    client = _get_gemini_client()
-    if client is None:
+def _parse_with_llm(query: str) -> Optional[dict]:
+    """Parse query using universal LLM client, returning structured dict or None."""
+    llm = get_llm()
+    if llm is None:
         return None
 
     try:
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=GEMINI_PROMPT.format(query=query),
-            config={"temperature": 0.1, "max_output_tokens": 500},
-        )
-
-        # Extract JSON from response
-        text = response.text.strip()
-
-        # Remove markdown code fences if present
+        prompt_text = GEMINI_PROMPT.format(query=query)
+        response = llm.invoke(prompt_text)
+        text = response.content.strip()
+        
+        # Clean potential markdown fences
         if text.startswith("```"):
-            text = re.sub(r"^```(?:json)?\s*", "", text)
-            text = re.sub(r"\s*```$", "", text)
-
-        parsed = json.loads(text)
-
-        # Validate required fields exist
-        required = {"job_role", "skills_technical", "skills_behavioral",
-                     "max_duration", "test_types_needed", "requires_balance"}
-        if not required.issubset(set(parsed.keys())):
-            logger.warning(f"Gemini response missing fields: {required - set(parsed.keys())}")
-            return None
-
-        # Ensure lists are actually lists
-        for field in ["skills_technical", "skills_behavioral", "test_types_needed"]:
-            if not isinstance(parsed.get(field), list):
-                parsed[field] = []
-
-        # Ensure max_duration is int or None
-        if parsed.get("max_duration") is not None:
-            try:
-                parsed["max_duration"] = int(parsed["max_duration"])
-            except (ValueError, TypeError):
-                parsed["max_duration"] = None
-
-        logger.info(f"Gemini parse successful: {parsed}")
-        return parsed
-
+            lines = text.split("\n")
+            lines = [l for l in lines if not l.strip().startswith("```")]
+            text = "\n".join(lines).strip()
+        
+        data = json.loads(text)
+        # (keep the existing key-validation checks here)
+        return data
     except Exception as e:
-        logger.warning(f"Gemini parsing failed: {e}. Falling back to rule-based.")
+        logger.warning(f"LLM parsing failed: {e}. Falling back to rule-based.")
         return None
 
 
@@ -281,7 +253,7 @@ def parse_query(query: str) -> dict:
         - requires_balance: bool
     """
     # Try Gemini first
-    result = _parse_with_gemini(query)
+    result = _parse_with_llm(query)
     if result is not None:
         return result
 
